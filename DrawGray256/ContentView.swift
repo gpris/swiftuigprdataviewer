@@ -7,10 +7,104 @@
 
 import SwiftUI
 import CoreGraphics
+import Foundation
+import Network
+
+class TCPClient: ObservableObject {
+    @Published var receivedData: String = "Waiting for data..."
+    private var connection: NWConnection?
+    private let queue = DispatchQueue(label: "TCP Client Queue")
+
+    func start(host: String, port: UInt16) {
+        let nwHost = NWEndpoint.Host(host)
+        let nwPort = NWEndpoint.Port(rawValue: port)!
+        connection = NWConnection(host: nwHost, port: nwPort, using: .tcp)
+        
+        connection?.stateUpdateHandler = { newState in
+            switch newState {
+            case .ready:
+                print("Connected to \(nwHost):\(nwPort)")
+                self.receive()
+            case .failed(let error):
+                print("Failed to connect: \(error)")
+            default:
+                break
+            }
+        }
+        connection?.start(queue: queue)
+    }
+
+    private func receive() {
+        connection?.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, context, isComplete, error in
+            if let data = data, !data.isEmpty {
+                let message = String(data: data, encoding: .utf8) ?? "Received non-text data"
+                DispatchQueue.main.async {
+                    self.receivedData = message
+                }
+                self.receive() // Continue to receive more data
+            } else if let error = error {
+                print("Receive error: \(error)")
+            }
+        }
+    }
+
+    func stop() {
+        connection?.cancel()
+    }
+}
+//class TCPClient {
+//    let connection: NWConnection
+//    let queue = DispatchQueue(label: "TCP Client Queue")
+//
+//    init(host: NWEndpoint.Host, port: NWEndpoint.Port) {
+//        connection = NWConnection(host: host, port: port, using: .tcp)
+//    }
+//
+//    func start() {
+//        connection.stateUpdateHandler = { newState in
+//            switch newState {
+//            case .ready:
+//                print("Connected to \(self.connection.endpoint)")
+//                self.receive()
+//            case .failed(let error):
+//                print("Failed to connect: \(error)")
+//            default:
+//                break
+//            }
+//        }
+//        connection.start(queue: queue)
+//    }
+//
+//    func receive() {
+//        connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, context, isComplete, error in
+//            if let data = data, !data.isEmpty {
+//                let message = String(data: data, encoding: .utf8) ?? "Received non-text data"
+//                print("Received: \(message)")
+//                self.receive() // Continue to receive more data
+//            } else if let error = error {
+//                print("Receive error: \(error)")
+//            }
+//        }
+//    }
+//
+//    func stop() {
+//        connection.cancel()
+//    }
+//}
+//let client = TCPClient(host: "localhost", port: 8080)
+//client.start()
+
 
 struct ContentView: View {
+    @StateObject private var tcpClient = TCPClient()
     var body: some View {
-        VStack {
+        VStack { 
+            Text(tcpClient.receivedData)
+                            .padding()
+                        Button("Start TCP Client") {
+                            tcpClient.start(host: "localhost", port: 8080)
+                        }
+                        .padding()
             if let cgImage = createImageWithLines(width: 4096, height: 256) {
                 Image(cgImage, scale: 1.0, label: Text("Line by Line Image"))
                     .resizable()
@@ -62,8 +156,10 @@ struct ContentView: View {
             intent: .defaultIntent
         )
     }
+
 }
 
 #Preview {
+    
     ContentView()
 }
